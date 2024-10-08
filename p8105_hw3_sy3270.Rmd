@@ -1,0 +1,331 @@
+---
+title: "p8105_hw3_sy3270"
+output: html_document
+date: "2024-10-08"
+---
+
+## initialization of data
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(p8105.datasets)
+data("ny_noaa")
+```
+
+## Problem 1
+## A significant portion of the dataset contains missing data, particularly in the temperature and snowfall columns.
+```{r }
+summarize(ny_noaa, across(c(tmax, tmin, prcp, snow, snwd), ~mean(is.na(.))))
+
+```
+
+## Data cleaning & # Count snowfall and arrange by descending order
+
+```{r }
+
+
+ny_noaa_clean <- ny_noaa %>%
+  separate(date, into = c("year", "month", "day"), sep = "-") %>%
+  mutate(
+    year = as.integer(year),
+    month = as.integer(month),
+    day = as.integer(day),
+    tmax = as.numeric(tmax) / 10,  
+    tmin = as.numeric(tmin) / 10,  
+    prcp = as.numeric(prcp) / 10,  
+    snow = as.numeric(snow),       
+    snwd = as.numeric(snwd)        
+  ) %>%
+  filter(!is.na(tmax) & !is.na(tmin))  
+
+ny_noaa_clean %>%
+  count(snow) %>%
+  arrange(desc(n)) %>%
+  head(10)
+
+
+```
+
+
+
+# Filter for January and July, group by station, year, and month to calculate average max temperature andreate a two-panel plot
+
+```{r }
+
+ny_noaa_jan_jul <- ny_noaa_clean %>%
+  filter(month %in% c(1, 7)) %>%  # Filter for January and July
+  group_by(id, year, month) %>%    # Group by station (id), year, and month
+  summarize(mean_tmax = mean(tmax, na.rm = TRUE))  # Calculate mean max temp
+
+ggplot(ny_noaa_jan_jul, aes(x = year, y = mean_tmax, color = as.factor(id))) +
+  geom_line() +
+  facet_wrap(~month, ncol = 2) +
+  labs(
+    title = "Average Maximum Temperature in January and July Across Years",
+    x = "Year",
+    y = "Average Max Temperature (°C)",
+    color = "Station ID"
+  ) +
+  theme_minimal()
+
+
+```
+# Panel 1: Plot of tmax vs tmin
+# Panel 2: Snowfall distribution for values greater than 0 and less than 100
+
+```{r , echo=FALSE}
+ggplot(ny_noaa_clean, aes(x = tmin, y = tmax)) +
+  geom_hex(bins = 50) +
+  labs(
+    title = "Maximum vs Minimum Temperature",
+    x = "Minimum Temperature (°C)",
+    y = "Maximum Temperature (°C)"
+  ) +
+  scale_fill_viridis_c() +
+  theme_minimal()
+
+ny_noaa_snow <- ny_noaa_clean %>%
+  filter(snow > 0 & snow < 100)
+
+ggplot(ny_noaa_snow, aes(x = snow, fill = as.factor(year))) +
+  geom_histogram(binwidth = 1, alpha = 0.7, position = "identity") +
+  facet_wrap(~year) +
+  labs(
+    title = "Distribution of Snowfall (0 < snow < 100)",
+    x = "Snowfall (mm)",
+    y = "Count",
+    fill = "Year"
+  ) +
+  theme_minimal()
+
+```
+
+## The NYC NOAA dataset reveals clear seasonal trends in weather data, particularly in temperature and snowfall patterns. The analysis shows that January is consistently colder than July, with temperatures varying across stations and years. Snowfall is infrequent, with the majority of observations reporting no snow, and when snow does occur, it tends to be in small amounts. The scatterplot of maximum vs. minimum temperatures confirms a strong positive correlation, reflecting the overall temperature patterns. These insights demonstrate the expected seasonal and weather variability in New York City, with occasional extreme weather events reflected in the outliers.
+
+
+
+## problem 2
+
+#load data & inspect data
+```{r }
+
+nhanes_covar <- read_csv("./nhanes_covar.csv")
+nhanes_accel <- read_csv("./nhanes_accel.csv")
+
+str(nhanes_covar)
+str(nhanes_accel)
+
+```
+
+# Data cleaning and merging, Filter participants 21+ years and remove those with missing demographic data, and Merge accelerometer data with demographic data
+
+```{r }
+
+nhanes_covar <- read_csv("./nhanes_covar.csv", skip = 4)
+colnames(nhanes_covar)
+head(nhanes_covar)
+
+nhanes_covar_clean <- nhanes_covar %>%
+  filter(age >= 21) %>%
+  drop_na()
+
+nhanes_covar_clean <- nhanes_covar_clean %>%
+  mutate(
+    sex = factor(sex, levels = c("1", "2"), labels = c("Male", "Female")),
+    education = factor(education, levels = c("1", "2", "3", "4"), 
+                       labels = c("Less than high school", "High school", "Some college", "College degree"))
+  )
+
+nhanes_data <- nhanes_accel %>%
+  left_join(nhanes_covar_clean, by = "SEQN")
+
+
+```
+
+# Number of Men and Women by Education Category
+```{r }
+table_men_women_edu <- nhanes_covar_clean %>%
+  group_by(education, sex) %>%
+  summarize(n = n()) %>%
+  pivot_wider(names_from = sex, values_from = n, values_fill = 0)
+
+table_men_women_edu
+
+```
+# Age Distribution by Sex and Education Category & Create a plot showing the age distribution by sex and education
+
+
+```{r echo=FALSE}
+
+ggplot(nhanes_covar_clean, aes(x = age, fill = sex)) +
+  geom_histogram(binwidth = 5, position = "identity", alpha = 0.6) +
+  facet_wrap(~education) +
+  labs(
+    title = "Age Distribution by Sex and Education",
+    x = "Age",
+    y = "Count"
+  ) +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2")
+
+```
+
+# Total Activity vs Age, by Sex and Education Level
+```{r echo=FALSE}
+
+colnames(nhanes_accel)
+
+nhanes_data <- nhanes_accel %>%
+  left_join(nhanes_covar_clean, by = "SEQN")
+
+nhanes_total_activity <- nhanes_data %>%
+  rowwise() %>%
+  mutate(total_activity = sum(c_across(min1:min1440), na.rm = TRUE)) %>%
+  ungroup() %>%
+  select(SEQN, age, sex, education, total_activity)
+
+ggplot(nhanes_total_activity, aes(x = age, y = total_activity, color = sex)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess") +
+  facet_wrap(~education) +
+  labs(
+    title = "Total Activity vs Age by Sex and Education Level",
+    x = "Age",
+    y = "Total Daily Activity (MIMS)"
+  ) +
+  theme_minimal() +
+  scale_color_brewer(palette = "Set1")
+
+
+```
+
+# 24-Hour Activity Time Course Plot
+```{r echo=FALSE}
+nhanes_time_course <- nhanes_data %>%
+  pivot_longer(cols = starts_with("min"), names_to = "minute_of_day", values_to = "MIMS") %>%
+  mutate(minute_of_day = as.numeric(str_remove(minute_of_day, "min"))) %>%
+  group_by(minute_of_day, sex, education) %>%
+  summarize(mean_activity = mean(MIMS, na.rm = TRUE))
+
+ggplot(nhanes_time_course, aes(x = minute_of_day, y = mean_activity, color = sex)) +
+  geom_line() +
+  facet_wrap(~education) +
+  labs(
+    title = "24-Hour Activity Time Course by Education Level",
+    x = "Minute of the Day",
+    y = "Mean Activity (MIMS)"
+  ) +
+  theme_minimal() +
+  scale_color_brewer(palette = "Set2")
+
+
+```
+# The NHANES accelerometer data analysis highlights the decline in physical activity with age and the differences between men and women. Men generally have higher total activity levels than women, while differences based on education level are less pronounced. The 24-hour time course analysis shows that participants exhibit clear peaks in activity in the morning and evening, with lower activity levels during the workday. Those with lower education levels tend to have more consistent activity throughout the day, while participants with higher education have more structured peaks, likely related to work schedules. These findings provide insights into how demographic factors influence physical activity patterns.
+
+
+# problem 3
+
+
+```{r }
+
+# Load the CSV files for Citi Bike rides
+july_2024 <- read_csv("./July 2024 Citi.csv")
+jan_2024 <- read_csv("./Jan 2024 Citi.csv")
+july_2020 <- read_csv("./July 2020 Citi.csv")
+jan_2020 <- read_csv("./Jan 2020 Citi.csv")
+
+# Combine the datasets into one DataFrame for analysis
+citibike_data <- bind_rows(july_2024, jan_2024, july_2020, jan_2020)
+
+# Add year and month columns based on the filenames
+citibike_data <- citibike_data %>%
+  mutate(year = case_when(str_detect(ride_id, "2024") ~ 2024, TRUE ~ 2020),
+         month = case_when(str_detect(ride_id, "July") ~ "July", TRUE ~ "January"))
+
+head(citibike_data)
+
+
+```
+
+# Total Rides by Year, Month, and Rider Type
+```{r echo=FALSE}
+
+# Create a summary table showing total rides by year, month, and rider type (casual vs member)
+rides_summary <- citibike_data %>%
+  group_by(year, month, member_casual) %>%
+  summarize(total_rides = n(), .groups = 'drop')
+
+rides_summary
+
+
+```
+
+
+# Top 5 Most Popular Starting Stations for July 2024
+
+```{r }
+
+# Filter for July 2024 rides only
+july_2024_data <- citibike_data %>%
+  filter(year == 2024 & month == "July")
+
+# Create a summary table showing the top 5 starting stations in July 2024
+top_stations_july_2024 <- july_2024_data %>%
+  count(start_station_name) %>%
+  arrange(desc(n)) %>%
+  head(5)
+
+# Display the top 5 stations
+top_stations_july_2024
+
+
+```
+
+# Median Ride Duration by Day of Week, Month, and Year
+
+```{r }
+
+median_duration <- citibike_data %>%
+  group_by(weekdays, month, year) %>%
+  summarize(median_duration = median(duration, na.rm = TRUE), .groups = 'drop')
+
+ggplot(median_duration, aes(x = weekdays, y = median_duration, fill = factor(year))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Median Ride Duration by Day of the Week (2020 vs 2024)",
+       x = "Day of the Week",
+       y = "Median Ride Duration (minutes)",
+       fill = "Year") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+# Distribution of Ride Duration by Month, Membership Status, and Bike Type
+
+```{r }
+
+data_2024 <- citibike_data %>%
+  filter(year == 2024)
+
+ggplot(data_2024, aes(x = month, y = duration, fill = member_casual)) +
+  geom_violin(trim = FALSE, scale = "width", adjust = 1) +
+  labs(title = "Distribution of Ride Duration by Month and Membership Status (2024)",
+       x = "Month",
+       y = "Ride Duration (minutes)",
+       fill = "Membership Status") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2")
+
+```
+
+
+
+
+
+# The Citi Bike data analysis shows that members consistently take more rides than casual users, with a noticeable decline in total rides from 2020 to 2024. The effects of day of the week, month, and year on ride duration indicate that weekends have longer rides, particularly in 2020. Casual riders generally have longer ride durations compared to members, and electric bikes, introduced in greater numbers in recent years, tend to have shorter rides than pedal-powered bikes. These results illustrate changing bike usage patterns, particularly with the increase in electric bikes and shifts in rider behavior over time.
+
+
+
+
+
+
